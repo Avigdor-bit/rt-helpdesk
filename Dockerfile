@@ -42,6 +42,8 @@ ENV APP_VERSION=${APP_VERSION}
 
 COPY app/ ./app/
 COPY gunicorn.conf.py ./
+# requirements.txt was only needed in the `base` layer to install packages.
+RUN rm -f /app/requirements.txt
 
 USER 10001:10001
 EXPOSE 8000
