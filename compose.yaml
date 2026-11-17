@@ -1,0 +1,88 @@
+name: rt-helpdesk
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${DB_ADMIN_USER:-helpdesk_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run scripts/setup_env.py first}
+      POSTGRES_DB: ${DB_NAME:-helpdesk}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?run scripts/setup_env.py first}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER:-helpdesk_admin} -d ${DB_NAME:-helpdesk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  migrate:
+    build:
+      context: .
+      target: runtime
+    command: ["flask", "--app", "app", "init-db"]
+    environment: &api_env
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-helpdesk}
+      DB_USER: ${DB_USER:-helpdesk_app}
+      DB_PASSWORD: ${DB_PASSWORD:?run scripts/setup_env.py first}
+      APP_VERSION: ${APP_VERSION:-local}
+      APP_ENV: ${APP_ENV:-development}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      target: runtime
+    environment: *api_env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  test-db:
+    image: postgres:16
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: helpdesk_app
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: helpdesk_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helpdesk_app -d helpdesk_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+    environment:
+      DB_HOST: test-db
+      DB_PORT: "5432"
+      DB_NAME: helpdesk_test
+      DB_USER: helpdesk_app
+      DB_PASSWORD: test
+      RUN_DB_TESTS: "1"
+      APP_VERSION: test
+      APP_ENV: test
+    depends_on:
+      test-db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

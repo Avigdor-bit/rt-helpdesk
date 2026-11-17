@@ -1,0 +1,65 @@
+# Git history & editor files
+.git/
+.gitignore
+.gitattributes
+.github/
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+.DS_Store
+
+# Environment files, credentials, keys, kubeconfigs
+.env
+.env.*
+*.pem
+*.key
+kubeconfig
+*.kubeconfig
+.secrets/
+
+# Virtualenvs, bytecode, caches, test results
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+test-results/
+coverage.xml
+.coverage
+htmlcov/
+
+# Backups, dumps, local logs
+backups/
+*.dump
+*.sql.gz
+*.log
+logs/
+
+# Terraform working dir, state, plans, local vars
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+*.auto.tfvars
+backend.hcl
+
+# Documentation, infra examples, other folders not needed in either image
+docs/
+reference/
+monitoring/
+postgres/
+scripts/
+*.md
+
+# Compose/Docker meta (not needed inside image)
+compose.yaml
+Dockerfile
+.dockerignore
