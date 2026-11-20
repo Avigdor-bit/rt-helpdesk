@@ -17,3 +17,6 @@ backend.hcl
 *.pem
 *.dump
 
+
+# Local environment file
+project.env
