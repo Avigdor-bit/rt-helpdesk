@@ -24,3 +24,8 @@ project.env
 # Local AWS infrastructure inventory
 /rt-helpdesk-full-details.json
 /instance_summary_i-00d183dae8777539b.json
+
+# Local-only inspection artifacts
+/yes
+/ec2 describe-security-groups \\
+/compose.yaml.pre-monitoring.bak
