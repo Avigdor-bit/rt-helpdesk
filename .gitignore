@@ -20,3 +20,7 @@ backend.hcl
 
 # Local environment file
 project.env
+
+# Local AWS infrastructure inventory
+/rt-helpdesk-full-details.json
+/instance_summary_i-00d183dae8777539b.json
