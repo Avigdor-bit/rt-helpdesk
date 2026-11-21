@@ -1,0 +1,12 @@
+HTTP/1.1 201 CREATED
+Server: gunicorn
+Date: Wed, 18 Nov 2026 23:44:50 GMT
+Connection: keep-alive
+Content-Type: application/json
+Content-Length: 211
+Location: /api/tickets/11
+X-Request-ID: cdb32c6d42dc47019be4534e620646bf
+X-Content-Type-Options: nosniff
+Cache-Control: no-store
+
+{"created_at":"2026-11-18T23:44:50.872675+00:00","description":"created for evidence","id":11,"requester":"student","status":"open","title":"evidence write test","updated_at":"2026-11-18T23:44:50.872675+00:00"}

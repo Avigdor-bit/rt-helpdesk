@@ -1,0 +1,9 @@
+ id |             title             | status
+----+-------------------------------+--------
+  1 | Cannot connect to training VM | open
+  2 | Course recording missing      | open
+  3 | Docker image fails to start   | open
+  4 | Lab access restored           | closed
+  5 | בקשת גישה למעבדה              | open
+ 11 | evidence write test           | open
+(6 rows)
