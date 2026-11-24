@@ -143,6 +143,50 @@ pipeline {
                 )
             }
         }
+
+        stage('Deploy to application host') {
+            steps {
+                input(
+                    message: "Deploy ${env.RELEASE_IMAGE} to the helpdesk application?",
+                    ok: 'Deploy'
+                )
+
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'rt-helpdesk-deploy-ssh',
+                        keyFileVariable: 'DEPLOY_SSH_KEY',
+                        usernameVariable: 'DEPLOY_SSH_USER'
+                    )
+                ]) {
+                    sh '''
+                        set +x
+                        set -eu
+
+                        test "$DEPLOY_SSH_USER" = "deploy"
+                        test -f reference/scripts/release.sh
+
+                        printf '%s\n' "$RELEASE_SHA" |
+                            grep -Eq '^[a-f0-9]{40}$'
+
+                        printf '%s\n' "$RELEASE_IMAGE" |
+                            grep -Eq '^391924456595\.dkr\.ecr\.il-central-1\.amazonaws\.com/rt-helpdesk@sha256:[a-f0-9]{64}$'
+
+                        echo "Deploying verified image to application host..."
+
+                        ssh \
+                            -i "$DEPLOY_SSH_KEY" \
+                            -o IdentitiesOnly=yes \
+                            -o BatchMode=yes \
+                            -o StrictHostKeyChecking=yes \
+                            -o UserKnownHostsFile=/home/buildagent/.ssh/known_hosts \
+                            -o ConnectTimeout=10 \
+                            "$DEPLOY_SSH_USER@10.0.1.138" \
+                            "bash -s -- helpdesk '$RELEASE_IMAGE' '$RELEASE_SHA'" \
+                            < reference/scripts/release.sh
+                    '''
+                }
+            }
+        }
     }
 
     post {
