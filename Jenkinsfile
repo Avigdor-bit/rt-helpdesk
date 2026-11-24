@@ -169,7 +169,7 @@ pipeline {
                             grep -Eq '^[a-f0-9]{40}$'
 
                         printf '%s\n' "$RELEASE_IMAGE" |
-                            grep -Eq '^391924456595\.dkr\.ecr\.il-central-1\.amazonaws\.com/rt-helpdesk@sha256:[a-f0-9]{64}$'
+                            grep -Eq '^391924456595[.]dkr[.]ecr[.]il-central-1[.]amazonaws[.]com/rt-helpdesk@sha256:[a-f0-9]{64}$'
 
                         echo "Deploying verified image to application host..."
 
