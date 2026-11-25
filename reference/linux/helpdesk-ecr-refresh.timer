@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically refresh RT Helpdesk private ECR pull secret
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=6h
+RandomizedDelaySec=5min
+Persistent=true
+Unit=helpdesk-ecr-refresh.service
+
+[Install]
+WantedBy=timers.target

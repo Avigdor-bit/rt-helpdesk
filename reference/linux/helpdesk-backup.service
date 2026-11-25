@@ -1,0 +1,14 @@
+[Unit]
+Description=Back up Helpdesk PostgreSQL to private S3
+After=network-online.target docker.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=ubuntu
+Environment=KUBECONFIG=/home/ubuntu/.kube/config
+Environment=AWS_REGION=il-central-1
+Environment=AWS_DEFAULT_REGION=il-central-1
+EnvironmentFile=/etc/helpdesk-backup.env
+WorkingDirectory=/opt/rt-helpdesk
+ExecStart=/bin/bash /opt/rt-helpdesk/reference/scripts/k8s-backup.sh helpdesk ${BACKUP_BUCKET}
+UMask=0077

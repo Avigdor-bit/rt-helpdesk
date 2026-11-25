@@ -1,0 +1,15 @@
+[Unit]
+Description=Refresh RT Helpdesk private ECR Kubernetes pull secret
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+Environment=HOME=/home/ubuntu
+Environment=KUBECONFIG=/home/ubuntu/.kube/config
+Environment=AWS_REGION=il-central-1
+Environment=AWS_DEFAULT_REGION=il-central-1
+WorkingDirectory=/opt/rt-helpdesk
+ExecStart=/opt/rt-helpdesk/reference/scripts/refresh-ecr-secret.sh

@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: helpdesk-backup
+  namespace: helpdesk
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: helpdesk-backup
+  namespace: helpdesk
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  resourceNames:
+  - db-0
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  resourceNames:
+  - db-0
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: helpdesk-backup
+  namespace: helpdesk
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: helpdesk-backup
+subjects:
+- kind: ServiceAccount
+  name: helpdesk-backup
+  namespace: helpdesk
