@@ -14,9 +14,11 @@ Read [the final project assignment](docs/Final_Project_Brief.docx) first. It cov
 | Kubernetes and database initialization examples | Kubernetes manifests and environment configuration |
 | Example GitHub Actions checks | Jenkins release and deployment pipeline |
 | App metrics, Prometheus rules and Grafana dashboard | Kubernetes monitoring deployment and failure evidence |
-| Local and Kubernetes backup helpers | One S3 backup and a verified restore |
+| Local and Kubernetes backup helpers | S3 backup and restore verified against the EC2-hosted kind deployment |
 
-This is an individual project targeting 70-90 hours, with one application namespace (`helpdesk`) plus monitoring. Bash/cloud-init cover server setup; Ansible is not required. The [reference solution and setup guide](reference/README.md) supply templates for the supported beginner path. Students use their own AWS accounts and available AWS credits, configure their own budgets, Jenkins agents and deployment credentials, connect the pipeline and verify each required outcome. The instructor supplies tested templates and guidance. The schedule allocates 74 planned hours plus up to 16 troubleshooting hours. The package has not been deployed to an AWS account.
+This is an individual project targeting 70-90 hours, with one application namespace (`helpdesk`) plus monitoring. Bash/cloud-init cover server setup; Ansible is not required. The [reference solution and setup guide](reference/README.md) supply templates for the supported beginner path. Students use their own AWS accounts and available AWS credits, configure their own Jenkins agents and deployment credentials, connect the pipeline and verify each required outcome. The instructor supplies tested templates and guidance. The schedule allocates 74 planned hours plus up to 16 troubleshooting hours.
+
+The active Terraform root configuration in `infrastructure/` manages the two-host AWS deployment: a CI host running Jenkins and an application host running the single-node kind cluster. It also adopts the existing VPC, subnet, internet gateway, route table, security groups, application IAM resources and S3 backup bucket. On 25 November 2026, a refreshed Terraform plan completed with no proposed changes, confirming that the active configuration and AWS state are in sync. No Terraform apply was needed for that verification.
 
 ## Container packaging
 
@@ -96,22 +98,15 @@ Without `RUN_DB_TESTS=1`, database integration tests explicitly skip. To run the
 
 `.github/workflows/ci.yml` runs all tests with a PostgreSQL service on pull requests and `main`. It also builds the runtime image without pushing it. Enable the workflow after pushing the repository to GitHub, then require its check where your repository supports that feature. Otherwise record successful checks before merging. No independent PR approval is required for this individual project. Actions use version tags for readability; pin reviewed commit SHAs for a stronger supply-chain policy.
 
-## Backup and restore locally
+## Backup and restore
 
-```sh
-python scripts/db_backup.py --output backups/lab.dump
-python scripts/db_restore.py backups/lab.dump --database helpdesk_restore_check1
-```
+The project has two distinct backup contexts. The local Compose environment and the Kubernetes deployment must not be treated as interchangeable.
 
-The backup uses `pg_dump` custom format. Restore only accepts a **new** name beginning with `helpdesk_restore_`. It does not overwrite the live database and fails if the destination already exists. It prints a restored row count. Compare actual ticket values as well before declaring recovery successful.
+The required Kubernetes backup workflow uses `reference/scripts/k8s-backup.sh`. It obtains a short-lived Kubernetes service-account token, runs `pg_dump` against the PostgreSQL pod, and uploads the custom-format dump to the S3 backup bucket. This workflow was verified against the EC2-hosted kind deployment. A PostgreSQL custom-format backup was restored into a separate disposable PostgreSQL 16 environment and its ticket records were inspected. The live database was not overwritten.
 
-Remove the temporary restore database after inspection:
+The live PostgreSQL persistence check also replaced the database pod while retaining its bound persistent volume; all six live ticket records and their fingerprint remained unchanged. The S3 restore contained five records from the earlier backup time; the live comparison had six because a later Jenkins smoke test created another ticket.
 
-```sh
-docker compose exec db dropdb -U postgres helpdesk_restore_check1
-```
-
-If a restore fails, the newly created test database is left in place for diagnosis. Drop that disposable database explicitly before retrying. Backup archives contain ticket data; keep them private.
+A successful recovery check must restore a backup into a disposable PostgreSQL database and compare actual ticket values, not just confirm that the archive exists or can be listed. Never restore over the live database. Backup archives contain ticket data; keep them private.
 
 ## API and deployment contract
 
@@ -125,7 +120,9 @@ Build an image with an identifiable version:
 docker build --target runtime --build-arg APP_VERSION=demo-v1 -t rt-helpdesk:demo-v1 .
 ```
 
-In Jenkins, replace `demo-v1` with the exact checked-out Git commit SHA. Bake the version into the image and deploy the published image digest to the single `helpdesk` environment. `APP_ENV` is runtime configuration; normally do not override baked-in `APP_VERSION` in Kubernetes.
+In Jenkins, use the exact checked-out Git commit SHA as the image version. The current pipeline validates the trusted `main` revision, runs the integration tests, builds the runtime image, publishes it to the private Amazon ECR repository and archives the immutable image digest.
+
+The approved release was deployed to the application host: the pipeline validated the trusted `main` revision, passed all 36 tests, published the runtime image to ECR, archived its immutable digest, and completed the approved Kubernetes rollout and smoke checks. A controlled failed-release test also confirmed that the previous image was restored and API health checks passed. Do not treat image publication alone as a completed deployment. `APP_ENV` is runtime configuration; normally do not override baked-in `APP_VERSION` in Kubernetes.
 
 Before starting the app in a new Kubernetes environment, provision the database and `helpdesk` schema, then run the image once as a Job with:
 
