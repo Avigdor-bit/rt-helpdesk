@@ -1,183 +1,447 @@
-# RT Helpdesk DevOps final project
+ 🎫 RT Helpdesk — DevOps Final Project
 
-A supplied Flask + PostgreSQL application for Real Time College. Students operate and deploy this app. **No Python, frontend or business-logic coding is required.**
+> A Flask + PostgreSQL helpdesk application delivered through a complete DevOps lifecycle: AWS infrastructure as code, container packaging, a kind Kubernetes cluster, Jenkins CI/CD to Amazon ECR, Prometheus/Grafana monitoring, persistent storage, and S3-backed backup and recovery.
 
-Read [the final project assignment](docs/Final_Project_Brief.docx) first. It covers AWS, Terraform, Kubernetes, Docker, Jenkins, Git, GitHub Actions, Linux, Prometheus and Grafana.
+---
 
-## What is included
+ 📖 Overview
 
-| Included and ready to use | Built by students during the project |
+This repository contains the implementation of the RT Helpdesk DevOps final project. It is built around a Flask ticketing application backed by PostgreSQL and deployed to a single-node [kind](https://kind.sigs.k8s.io/) Kubernetes cluster on an AWS EC2 application host. A separate AWS EC2 CI host runs Jenkins (controller + agent), which tests the application, builds and publishes container images to Amazon ECR, and deploys releases to the cluster over SSH.
+
+The project follows the six-milestone course architecture and is backed by execution evidence rather than descriptions of intended functionality.
+
+| Milestone | Status | Summary |
+|---|---|---|
+| 🟢 M1 — Application and source control | ✅ Complete | Flask/PostgreSQL app, API + health/version endpoints, DB init, tests, Git |
+| 🟡 M2 — AWS infrastructure and Terraform | ⚠️ Implemented, with caveat | Two EC2 hosts, VPC/networking, IAM, S3-backed remote state; adoption reconciliation remains |
+| 🟢 M3 — Containerization and Kubernetes | ✅ Implemented | kind cluster, app + PostgreSQL deployments, PVC, init job, service, hardening |
+| 🟢 M4 — Jenkins CI/CD and Amazon ECR | ✅ Implemented | Checkout, tests, build, ECR push, manual approval, SSH deploy, rollout, smoke test |
+| 🟢 M5 — Monitoring, backup and recovery | ✅ Implemented | Prometheus, Grafana, dashboard, DB alert, S3 backup, separate-DB restore verification |
+| 🟢 M6 — Documentation and final submission | ✅ Complete | README, API docs, validation docs, evidence package, synchronized GitHub submission |
+
+---
+
+ 🏗️ Architecture
+
+```text
+AWS region: il-central-1
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ AWS VPC / Networking / Security Groups / IAM Instance Profiles       │
+│                                                                      │
+│  ┌──────────────────────────────┐      ┌───────────────────────────┐ │
+│  │ CI host — t3.medium          │      │ App host — t3.large       │ │
+│  │                              │      │                           │ │
+│  │ Jenkins controller + agent   │      │ Single-node kind cluster  │ │
+│  │  - checkout                  │      │                           │ │
+│  │  - tests                     │      │ helpdesk namespace        │ │
+│  │  - image build               │      │  - Flask application      │ │
+│  │  - ECR publication           │      │  - PostgreSQL             │ │
+│  │  - release approval          │      │  - PersistentVolumeClaim  │ │
+│  │  - SSH deployment            │      │  - init DB job            │ │
+│  │  - rollout + smoke test      │      │  - application service    │ │
+│  │                              │      │                           │ │
+│  │                              │      │ monitoring namespace      │ │
+│  │                              │      │  - Prometheus             │ │
+│  │                              │      │  - Grafana                │ │
+│  └──────────────┬───────────────┘      └─────────────┬─────────────┘ │
+│                 │                                    │               │
+│                 │ image push/pull                    │ backup/restore│
+│                 ▼                                    ▼               │
+│        ┌─────────────────┐                  ┌─────────────────────┐  │
+│        │ Amazon ECR      │                  │ Amazon S3           │  │
+│        │ container images│                  │ Terraform state     │  │
+│        └─────────────────┘                  │ PostgreSQL backups  │  │
+│                                             └─────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+ Components
+
+| Component | Host / Namespace | Details |
+|---|---|---|
+| Jenkins controller + agent | CI host (`t3.medium`) | Runs the release pipeline |
+| kind cluster | App host (`t3.large`) | Single-node Kubernetes |
+| Flask application | `helpdesk` namespace | Non-root UID/GID `10001`, read-only root FS, Gunicorn |
+| PostgreSQL | `helpdesk` namespace | PersistentVolumeClaim-backed |
+| init DB job | `helpdesk` namespace | Schema initialization (`init-db.yaml`) |
+| Prometheus / Grafana | `monitoring` namespace | 15s scrape interval; Grafana 11.4.0 |
+| Amazon ECR | AWS | Container image registry |
+| Amazon S3 | AWS | Terraform remote state + PostgreSQL backups |
+
+---
+
+ ✅ Prerequisites
+
+Before reproducing the project you will need:
+
+- An AWS account with permissions for EC2, VPC, IAM, ECR, and S3.
+- AWS CLI configured for region `il-central-1`.
+- Terraform `>= 1.x` installed.
+- Docker installed locally (for building and kind).
+- `kubectl` and `kind` installed.
+- An SSH key pair for accessing the EC2 hosts.
+- A GitHub account for source control and the repository.
+
+---
+
+ 📂 Repository Structure
+
+```text
+rt-helpdesk/
+├── README.md
+├── app/                        Flask application source
+├── tests/                      28 unit/API tests + 8 PostgreSQL integration tests
+├── Dockerfile                  Hardened application image
+├── compose.yaml                Local development stack
+├── k8s/
+│   ├── namespace.yaml
+│   ├── deployment.yaml         Flask application
+│   ├── postgres-deployment.yaml
+│   ├── pvc.yaml
+│   ├── init-db.yaml            DB initialization job
+│   └── service.yaml
+├── monitoring/
+│   ├── prometheus/
+│   └── grafana/
+├── terraform/                  VPC, EC2, IAM, S3 backend (26 tracked resources)
+├── jenkins/
+│   ├── Jenkinsfile
+│   └── release.sh
+├── docs/
+│   ├── API.md
+│   ├── CONTAINER_PACKAGING.md
+│   ├── Final_Project_Brief.docx
+│   ├── SOURCES.md
+│   └── VALIDATION.md
+├── evidence/
+│   ├── ci/README.md
+│   ├── image-uid.txt
+│   └── local/
+│       ├── kubernetes-troubleshooting.txt
+│       ├── linux-resource-diagnosis.txt
+│       └── s3-restore-verification.txt
+├── reference/README.md
+└── traffic.py                  Smoke-test traffic generator
+```
+
+---
+
+ 🛠️ Step-by-Step Build Guide
+
+The steps below mirror the six milestones. Commands are representative of the implementation and should be adapted to your environment.
+
+ Step 1 — Build the Application (Milestone 1)
+
+1. Create the Flask application with ticket-management endpoints, health, and version endpoints.
+2. Integrate PostgreSQL using environment-variable configuration.
+3. Add a database initialization path so the schema can be created on first boot.
+4. Write tests covering the application, API, and PostgreSQL integration.
+5. Initialize Git and push the project to GitHub.
+
+```bash
+Run the test suite
+pytest -v
+
+Expected: 36 passed
+  28 application / unit / API tests
+   8 PostgreSQL integration tests
+```
+
+A successful App CI run is documented here:
+🔗 https://github.com/Avigdor-bit/rt-helpdesk/actions/runs/44917156684
+
+---
+
+ Step 2 — Provision AWS Infrastructure (Milestone 2)
+
+1. Configure the Terraform S3 backend with encryption and state locking.
+2. Define the VPC and networking (subnets, route tables, internet gateway).
+3. Create security groups for the CI host and application host.
+4. Create IAM roles and instance profiles for each host.
+5. Provision the two EC2 hosts:
+
+| Host | Instance type | Role |
+|---|---|---|
+| CI host | `t3.medium` | Jenkins controller and agent |
+| Application host | `t3.large` | Kubernetes application environment |
+
+```bash
+cd terraform/
+terraform init
+terraform plan
+terraform apply
+```
+
+```hcl
+backend.tf (representative)
+terraform {
+  backend "s3" {
+    bucket         = "rt-helpdesk-tfstate"
+    key            = "rt-helpdesk/terraform.tfstate"
+    region         = "il-central-1"
+    encrypt        = true
+    dynamodb_table = "rt-helpdesk-tf-lock"
+  }
+}
+```
+
+> ⚠️ Caveat: The existing state tracks 26 resources including both EC2 instances. Additional Terraform adoption-related changes exist in the local working tree but were deliberately excluded from the final submission commit. The committed configuration alone does not establish that every current AWS resource can be recreated without further reconciliation.
+
+---
+
+ Step 3 — Containerize and Deploy to Kubernetes (Milestone 3)
+
+1. Write the Dockerfile with hardening controls:
+
+```dockerfile
+Representative hardening
+FROM python:3.12-slim
+RUN groupadd -g 10001 app && useradd -u 10001 -g app app
+WORKDIR /app
+COPY . .
+RUN pip install --no-cache-dir -r requirements.txt
+USER 10001:10001
+EXPOSE 8000
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+```
+
+2. Build the image:
+
+```bash
+docker build -t rt-helpdesk:local .
+```
+
+3. Create the kind cluster on the application host:
+
+```bash
+kind create cluster --name rt-helpdesk
+kubectl get nodes
+```
+
+4. Apply the Kubernetes manifests:
+
+```bash
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/pvc.yaml
+kubectl apply -f k8s/postgres-deployment.yaml
+kubectl apply -f k8s/init-db.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+```
+
+5. Verify persistence: Replace the PostgreSQL pod and confirm the bound PVC and database fingerprint remain unchanged.
+
+```bash
+kubectl -n helpdesk delete pod -l app=postgres
+kubectl -n helpdesk get pvc
+```
+
+Container hardening applied:
+
+- 🔒 Non-root execution
+- 🆔 UID/GID `10001`
+- 📖 Read-only root filesystem
+- ✍️ Writable `/tmp`
+- 🦄 Gunicorn-based serving
+
+---
+
+ Step 4 — Build the Jenkins CI/CD Pipeline (Milestone 4)
+
+1. Install Jenkins on the CI host with a controller/agent arrangement.
+2. Create credentials:
+   - ECR publisher credential
+   - SSH deployment credential
+   - Known-hosts file (strict host-key checking)
+3. Add a `Jenkinsfile` implementing the eight-step release workflow:
+
+```groovy
+pipeline {
+  agent any
+  stages {
+    stage('Checkout')            { steps { checkout scm } }
+    stage('Test')                { steps { sh 'pytest -v' } }
+    stage('Build Image')         { steps { sh 'docker build -t rt-helpdesk:$BUILD_NUMBER .' } }
+    stage('Push to ECR')         { steps { sh './jenkins/ecr-push.sh $BUILD_NUMBER' } }
+    stage('Release Approval')    { steps { input 'Approve deployment?' } }
+    stage('Deploy')              { steps { sh './jenkins/release.sh $BUILD_NUMBER' } }
+    stage('Rollout')             { steps { sh 'kubectl -n helpdesk rollout status deploy/rt-helpdesk' } }
+    stage('Smoke Test')          { steps { sh 'python traffic.py' } }
+  }
+}
+```
+
+4. Deploy over SSH to the private application-host address using the release script, then run the smoke test against the cluster service.
+
+> ↩️ Rollback note: A separate rollback demonstration was performed on a disposable local kind cluster by injecting an invalid image digest and restoring a known-good deployment through the release script. This is useful rollback evidence but is not a Jenkins-triggered or AWS-host rollback.
+
+---
+
+ Step 5 — Add Monitoring, Backup and Recovery (Milestone 5)
+
+1. Deploy Prometheus and Grafana into the `monitoring` namespace:
+
+```bash
+kubectl apply -f monitoring/prometheus/
+kubectl apply -f monitoring/grafana/
+```
+
+2. Configure scraping at a 15-second interval and build the RT Helpdesk dashboard (7 panels).
+
+3. Add a database availability alert and validate it:
+
+```text
+Make PostgreSQL unavailable → alert fires after ~60s → restore DB → alert clears
+```
+
+> 📣 No external notification delivery (e.g., email/Slack/PagerDuty) is claimed.
+
+4. Implement the backup process:
+
+```bash
+Backup (representative)
+SA_TOKEN=$(kubectl -n helpdesk create token backup-sa --duration=15m)
+PGPASSWORD="$PGPASSWORD" pg_dump -h "$PGHOST" -U "$PGUSER" \
+  -Fc "$PGDATABASE" > "backup-$(date +%F).dump"
+aws s3 cp "backup-$(date +%F).dump" s3://rt-helpdesk-backups/ --sse
+```
+
+5. Verify restore into a separate disposable database:
+
+```bash
+Restore into a NEW database (never overwrite the live DB)
+createdb rt_helpdesk_restore
+pg_restore -d rt_helpdesk_restore backup-YYYY-MM-DD.dump
+psql -d rt_helpdesk_restore -c "SELECT count(*) FROM tickets;"
+```
+
+Five records were compared and matched against the source, and the live database was not overwritten.
+
+---
+
+ Step 6 — Document, Validate and Submit (Milestone 6)
+
+1. Write the documentation package:
+
+| File | Purpose |
 |---|---|
-| Flask API, browser UI and PostgreSQL schema | AWS infrastructure in Terraform |
-| Five fictional tickets and automated tests | Linux server configuration and automation |
-| Container packaging brief, Dockerfile, .dockerignore and local Compose environment | Container build, runtime verification and test execution |
-| Kubernetes and database initialization examples | Kubernetes manifests and environment configuration |
-| Example GitHub Actions checks | Jenkins release and deployment pipeline |
-| App metrics, Prometheus rules and Grafana dashboard | Kubernetes monitoring deployment and failure evidence |
-| Local and Kubernetes backup helpers | S3 backup and restore verified against the EC2-hosted kind deployment |
+| `README.md` | Project overview and build guide |
+| `docs/API.md` | API reference |
+| `docs/CONTAINER_PACKAGING.md` | Packaging reference |
+| `docs/Final_Project_Brief.docx` | Project brief |
+| `docs/SOURCES.md` | Sources |
+| `docs/VALIDATION.md` | Validation record |
+| `reference/README.md` | Reference implementation notes |
 
-This is an individual project targeting 70-90 hours, with one application namespace (`helpdesk`) plus monitoring. Bash/cloud-init cover server setup; Ansible is not required. The [reference solution and setup guide](reference/README.md) supply templates for the supported beginner path. Students use their own AWS accounts and available AWS credits, configure their own Jenkins agents and deployment credentials, connect the pipeline and verify each required outcome. The instructor supplies tested templates and guidance. The schedule allocates 74 planned hours plus up to 16 troubleshooting hours.
+2. Correct the init manifest filename from `init-db.yam` → `init-db.yaml` (contents preserved).
 
-The Terraform configuration in `infrastructure/` describes the two-host AWS deployment and includes declarations to adopt existing AWS resources. On 25 November 2026, a refreshed Terraform plan completed with no proposed changes; no apply was performed. That result is a historical verification of the configuration and state at that time. Subsequent local, uncommitted adoption/import edits in the active root have not been applied or independently revalidated. The declarations alone do not prove that resources have been imported into Terraform state.
+3. Commit and push, then verify synchronization:
 
-## Container packaging
-
-The multi-stage `Dockerfile` and `.dockerignore` are included. The image provides separate test and runtime targets, runs as non-root UID/GID 10001, and supports a read-only root filesystem with writable `/tmp`.
-
-See [CONTAINER_PACKAGING.md](docs/CONTAINER_PACKAGING.md) for the packaging requirements and verification procedure. The test target was built locally and the test suite completed with 36 passed tests. The successful App CI run also confirms a runtime-target build. The default image target and all runtime acceptance checks in the packaging assignment are not fully evidenced; see `docs/VALIDATION.md`.
-
-## Start locally
-
-After completing the container packaging checks, use the following steps.
-
-Requirements: Docker Engine or Docker Desktop with Compose v2, Git, and Python 3.10+ for the helper scripts. Docker Desktop on Windows should use Linux containers. Run all commands from this folder. On Windows, use `py` if `python` is not available.
-
-```sh
-python scripts/setup_env.py
-docker compose up --build -d
-docker compose exec api flask --app app seed-db
+```bash
+git push origin main
+git fetch origin
+git rev-list --left-right --count origin/main...HEAD   → 0 0
+git rev-parse origin/main                              → a9649c5
+git rev-parse HEAD                                     → a9649c5
 ```
 
-Open **http://localhost:8000**. Create a ticket and close or reopen it. No login is needed in this lab.
+---
 
-The setup script generates three random passwords in `.env`. It will not overwrite an existing file. Do not commit `.env`. PostgreSQL is reachable only inside the Compose network, and web ports bind to localhost. Use fictional data. Public access and user authentication are outside this lab's default setup.
+ 🔐 Security and Operational Practices
 
-Initial startup creates the non-superuser `helpdesk_app` role, its schema, and the tickets table. The `migrate` service is a one-shot initialization step. It must finish successfully before the API starts. API restarts do not clear tickets or recreate the schema.
-
-Useful commands:
-
-```sh
-docker compose ps -a
-docker compose logs --tail 100 api migrate db
-docker compose restart api
-docker compose down
-```
-
-`docker compose down` keeps the data volume. `docker compose down -v` deletes volumes and their contents; use it only when you intentionally want a fresh lab. Changing passwords in `.env` does not change passwords in an existing PostgreSQL volume. Keep the original passwords, rotate them in PostgreSQL, or reset an expendable lab volume.
-
-## Add Prometheus and Grafana
-
-```sh
-docker compose --profile monitoring up --build -d
-bash traffic.py
-```
-
-| Service | Local address |
+| Area | Practice |
 |---|---|
-| Helpdesk UI | http://localhost:8000 |
-| App metrics | http://localhost:8000/metrics |
-| Prometheus targets | http://localhost:9090/targets |
-| Prometheus alerts | http://localhost:9090/alerts |
-| Grafana | http://localhost:3000 |
+| 🆔 Application identity | Non-root UID/GID `10001` |
+| 📖 Container filesystem | Read-only root filesystem configuration |
+| ✍️ Temporary storage | Writable `/tmp` |
+| ✋ CI/CD approval | Manual release approval |
+| 🔒 SSH deployment | Strict host-key checking |
+| 🪪 AWS access | IAM roles and instance profiles |
+| 🗄️ Infrastructure state | Encrypted S3-backed Terraform state |
+| 💾 Database storage | Persistent volume claim |
+| 📦 Backup | PostgreSQL custom-format dump |
+| ♻️ Recovery | Separate-database restore verification |
 
-Log into Grafana as `admin`, using `GRAFANA_ADMIN_PASSWORD` from `.env`. Open **Dashboards → DevOps Lab → RT Helpdesk**. The Prometheus datasource and dashboard are provisioned from files. Allow at least two scrapes for rates to appear. An error-rate panel showing zero with healthy traffic is expected.
+> ⚠️ These are meaningful DevOps controls but are not a complete commercial production security architecture.
 
-Read [the monitoring lab](docs/MONITORING.md) for queries, alert exercises and Kubernetes requirements. Prometheus displays firing/resolved alerts. Email or chat notifications are not configured in this package.
+---
 
-## Tests
+ 📈 Evidence and Verification
 
-The following command uses a separate, disposable PostgreSQL test database. It does not test against the application's persistent database.
+| Evidence | Location |
+|---|---|
+| 🧪 36 passing tests | Test run / `evidence/ci/` |
+| 🔄 App CI run | GitHub Actions run `44917156684` |
+| 🚀 Jenkins release + deployment | Jenkins build logs |
+| 📤 ECR image publication | ECR console / `evidence/image-uid.txt` |
+| 💾 PVC persistence after pod replacement | `evidence/` |
+| 🚨 Database alert fire + clear | Grafana / Prometheus |
+| ♻️ S3 restore into separate DB | `evidence/local/s3-restore-verification.txt` |
+| ↩️ Local rollback demonstration | Local kind evidence |
+| 🛠️ Kubernetes troubleshooting | `evidence/local/kubernetes-troubleshooting.txt` |
+| 🐧 Linux resource diagnosis | `evidence/local/linux-resource-diagnosis.txt` |
 
-```sh
-docker compose --profile test run --build --rm tests
-docker compose --profile test stop test-db
-docker compose --profile test rm -f test-db
-```
+---
 
-For local Python development, install Python 3.12 and run:
+ 🚧 Known Limitations
 
-```sh
-python -m venv .venv
-# Linux/macOS: source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt
-python -m pytest -q
-```
+The following are not established as completed capabilities by the submitted evidence:
 
-Without `RUN_DB_TESTS=1`, database integration tests explicitly skip. To run them against your own disposable PostgreSQL, set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE` and `RUN_DB_TESTS=1`. `DB_NAME` must end in `_test`; these tests clear its tickets table. The test user must be able to create the `helpdesk` schema. Do not use a shared or live database.
+1. ↩️ Jenkins-triggered or AWS-environment rollback
+2. 📣 External alert notification delivery
+3. 🧱 High availability across multiple replicas or nodes
+4. 🌍 Multi-region disaster recovery
+5. 🧩 A fully reconciled and revalidated Terraform adoption configuration
+6. 📦 Complete acceptance evidence for every Docker and Compose packaging test
+7. 🔐 A complete external HTTPS and DNS production-access arrangement
+8. 📜 A formal production SLO or commercial support arrangement
 
-`.github/workflows/ci.yml` runs all tests with a PostgreSQL service on pull requests and `main`. It also builds the runtime image without pushing it. Enable the workflow after pushing the repository to GitHub, then require its check where your repository supports that feature. Otherwise record successful checks before merging. No independent PR approval is required for this individual project. Actions use version tags for readability; pin reviewed commit SHAs for a stronger supply-chain policy.
+> ℹ️ These limitations do not invalidate the demonstrated course workflows — they define the boundary of what has actually been proven.
 
-## Backup and restore
+---
 
-The project has two distinct backup contexts. The local Compose environment and the Kubernetes deployment must not be treated as interchangeable.
+ ✅ Final Submission
 
-The required Kubernetes backup workflow uses `reference/scripts/k8s-backup.sh`. It obtains a short-lived Kubernetes service-account token, runs `pg_dump` against the PostgreSQL pod, and uploads the custom-format dump to the S3 backup bucket. This workflow was verified against the EC2-hosted kind deployment. A PostgreSQL custom-format backup was restored into a separate disposable PostgreSQL 16 environment and its ticket records were inspected. The live database was not overwritten.
+The final submission was committed and pushed successfully and is synchronized with GitHub.
 
-The live PostgreSQL persistence check also replaced the database pod while retaining its bound persistent volume; all six live ticket records and their fingerprint remained unchanged. The S3 restore contained five records from the earlier backup time; the live comparison had six because a later Jenkins smoke test created another ticket. The actual S3 download and disposable-database restore were re-verified; all five restored records matched the pre-backup records. See the [S3 restore verification evidence](evidence/local/s3-restore-verification.txt) for the terminal results.
+| Check | Result |
+|---|---|
+| `git push origin main` | ✅ Succeeded |
+| `git fetch origin` | ✅ Completed |
+| `git rev-list --left-right --count origin/main...HEAD` | ✅ `0 0` |
+| Remote `origin/main` | ✅ `a9649c5` |
+| Local `main` | ✅ `a9649c5` |
 
-A successful recovery check must restore a backup into a disposable PostgreSQL database and compare actual ticket values, not just confirm that the archive exists or can be listed. Never restore over the live database. Backup archives contain ticket data; keep them private.
+🔗 Repository: https://github.com/Avigdor-bit/rt-helpdesk
 
-## API and deployment contract
+ Deliberately excluded local changes
 
-See [API.md](docs/API.md) for requests and configuration. All web responses use port **8000**. Required paths are `/healthz`, `/readyz`, `/version` and `/metrics`.
+The following were preserved locally but not staged, committed, pushed, or applied to AWS during finalization:
 
-Your runtime image must include Gunicorn, use UID/GID **10001**, write application logs to stdout and support a read-only root filesystem with writable `/tmp`. **Keep one Gunicorn worker per container** for correct metrics. Four threads serve requests; scale with Kubernetes replicas. Adding worker processes requires Prometheus multiprocess configuration that is not included here.
+- `compose.yaml` modification
+- Uncommitted Terraform edits
+- Terraform adoption/import proposal files
+- Temporary scripts and packages
+- Additional untracked evidence and working files
 
-Build an image with an identifiable version:
+---
 
-```sh
-docker build --target runtime --build-arg APP_VERSION=demo-v1 -t rt-helpdesk:demo-v1 .
-```
+ 🏆 Overall Assessment
 
-In Jenkins, use the exact checked-out Git commit SHA as the image version. The current pipeline validates the trusted `main` revision, runs the integration tests, builds the runtime image, publishes it to the private Amazon ECR repository and archives the immutable image digest.
+> 🎉 The RT Helpdesk DevOps project has reached a strong course-submission state. It demonstrates the principal DevOps lifecycle — application development, AWS infrastructure, containerization, automated testing, CI/CD, Kubernetes, monitoring, persistence, backup, and recovery — with evidence-backed claims and explicitly documented limitations.
 
-The approved release was deployed to the application host: the pipeline validated the trusted `main` revision, passed all 36 tests, published the runtime image to ECR, archived its immutable digest, and completed the approved Kubernetes rollout and smoke checks. The release script's rollback behavior was separately demonstrated on 26 November 2026 in a disposable local kind cluster; this is not evidence of a Jenkins-triggered rollback or AWS rollback execution. No specific Jenkins rollback build or console evidence was independently identified among builds #1–#8. Do not cite Build #6 as proof of rollback. Do not treat image publication alone as a completed deployment. `APP_ENV` is runtime configuration; normally do not override baked-in `APP_VERSION` in Kubernetes.
+It is not represented as a fully production-hardened commercial platform.
 
-Before starting the app in a new Kubernetes environment, provision the database and `helpdesk` schema, then run the image once as a Job with:
+---
 
-```sh
-flask --app app init-db
-```
+ 📌 Recommended Next Step
 
-The `init-db` command retries PostgreSQL operational errors up to ten times by default, waiting one second between attempts; the `--attempts` option allows a limit of 1–30 attempts. `schema.sql` is the initial schema, not a general migration framework. App restarts do not execute DDL.
+> Preserve commit `a9649c5` as the final submission baseline.
 
-## Versions and verification
+Do not make last-minute infrastructure changes, Terraform imports, AWS modifications, or unrelated file cleanups unless a specific assessment requirement calls for them.
 
-Python dependencies are pinned in `requirements.txt` and `requirements-dev.txt`. PostgreSQL uses the maintained `16-bookworm` tag; Python uses `3.12-slim-bookworm`. These tags can receive updates. Record resolved digests in your release evidence. Prometheus and Grafana use explicit versions in Compose. Review and scan versions before running a class.
+---
 
-See [VALIDATION.md](docs/VALIDATION.md) for what was actually executed while preparing this package and what still requires a Docker/AWS environment.
+Final reference: a9649c5 on GitHub main
 
-### CI, monitoring and recovery evidence
-
-- [CI evidence index](evidence/ci/README.md)
-- [Successful App CI run](https://github.com/Avigdor-bit/rt-helpdesk/actions/runs/44917156684) — validation, tests and image build; not ECR publication or deployment.
-- [Monitoring and recovery record](docs/MONITORING.md)
-- [S3 backup restore verification](evidence/local/s3-restore-verification.txt)
-
-## Deployment architecture
-
-```mermaid
-flowchart LR
-  GitHub --> CI
-  subgraph CI["CI EC2 host"]
-    Controller["Jenkins controller"]
-    Agent["Jenkins build agent"]
-    Controller --> Agent
-  end
-  Agent --> ECR
-  Agent --> Deploy
-  subgraph APP["Application EC2 host"]
-    Deploy["SSH release as deploy"]
-    Deploy --> Kind["kind cluster"]
-    Kind --> API["Helpdesk API"]
-    API --> DB[("PostgreSQL + PVC")]
-    Kind --> Monitoring["Prometheus + Grafana"]
-  end
-  APP --> S3[("Private S3 backup bucket")]
-  Terraform --> AWS["AWS VPC and EC2"]
-```
-
-## AWS cleanup and resource retention
-
-Do not run `terraform destroy` as a routine cleanup step. It can remove the project hosts and other managed infrastructure.
-
-Before any teardown, review the Terraform plan and confirm which resources would be deleted. Preserve the Terraform state bucket and S3 backup bucket, including their contents and versions. Do not delete backups or state as part of ordinary project cleanup.
-
-## Final self-study exercise (2–3 hours)
-
-**Status: selected self-study task completed; duration not recorded.** The Linux resource-diagnosis task was completed on 26 November 2026 and documented in [Linux resource-diagnosis evidence](evidence/local/linux-resource-diagnosis.txt). It covers CPU, memory, swap, filesystem and inode diagnosis; safe storage investigation; approved cleanup; verification; and lessons learned. The report does not claim that the assigned 2–3-hour duration was completed. The separate Kubernetes troubleshooting exercise is additional supporting evidence.
-
-The course brief requires one small self-study task. This project uses the Linux resource-diagnosis option; the Grafana-panel and alert-duration options were not selected.
-
-Do not perform destructive tests against the live database or delete shared AWS resources.
