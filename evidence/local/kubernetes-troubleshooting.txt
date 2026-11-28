@@ -1,0 +1,96 @@
+RT Helpdesk — Kubernetes Troubleshooting Exercise
+==================================================
+
+Date: 26 November 2026
+Environment: Local disposable kind cluster
+Context: kind-rt-helpdesk-rollback-test
+Namespace: helpdesk
+Workload: Deployment/api
+
+Scope and safety
+----------------
+This exercise was performed only in the disposable local kind cluster
+kind-rt-helpdesk-rollback-test. The Minikube context and AWS application
+cluster were not modified. No project application code, image, database,
+or PVC was changed.
+
+Initial state
+-------------
+The API Deployment was healthy before the exercise:
+- Deployment rollout completed successfully.
+- API image remained pinned to its existing ECR SHA256 digest.
+- Original readiness probe: HTTP GET /readyz on the named http port.
+- Original liveness probe: HTTP GET /healthz on the named http port.
+
+Controlled fault
+----------------
+Temporarily changed only the API readiness-probe path to:
+
+    /readyz-misconfigured
+
+The Deployment created a replacement API pod. The replacement pod was
+Running but not Ready (0/1), with zero restarts. The previous API pod
+remained healthy (1/1 Running).
+
+Diagnosis
+---------
+Used kubectl describe pod on the replacement API pod and inspected
+container logs with kubectl logs.
+
+The pod description reported:
+
+    Readiness probe failed: HTTP probe failed with statuscode: 404
+
+The configured readiness path was shown as:
+
+    /readyz-misconfigured
+
+The liveness probe continued using /healthz.
+
+Application logs showed:
+- Gunicorn started and listened on 0.0.0.0:8000.
+- Requests to /healthz returned HTTP 200.
+- Requests to /readyz-misconfigured returned HTTP 404.
+- The container had zero restarts.
+
+The logs also contained a Gunicorn control-server warning about the
+read-only filesystem. This was not the cause of the readiness failure:
+the application continued serving HTTP requests, and the probe failure
+was specifically the HTTP 404 response from the incorrect path.
+
+Root cause
+----------
+The Kubernetes readiness probe referenced a URL that the application
+did not serve. The application process was running, but Kubernetes
+correctly withheld Ready status because the readiness request returned
+HTTP 404.
+
+Corrective action
+-----------------
+Restored the readiness-probe path to the original:
+
+    /readyz
+
+No image, application code, liveness probe, database, or PVC changes
+were made.
+
+Recovery verification
+---------------------
+The Deployment rollout completed successfully.
+
+Final observed state:
+- Deployment/api: READY 1/1
+- UP-TO-DATE: 1
+- AVAILABLE: 1
+- Restored readiness path: /readyz
+- API pod: 1/1 Running
+- API pod restarts: 0
+
+Conclusion
+----------
+PASS — The deliberately incorrect readiness configuration was diagnosed
+using kubectl describe and kubectl logs, corrected, and verified healthy.
+
+This is evidence of a controlled troubleshooting exercise in a
+disposable local kind cluster. It is not evidence of troubleshooting
+performed on the AWS application cluster.

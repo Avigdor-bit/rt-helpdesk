@@ -40,7 +40,7 @@ sed "s|REPLACE_IMAGE|$image|g" reference/k8s/app.yaml | kubectl -n "$ns" apply -
 kubectl -n "$ns" patch configmap app-config --type merge -p "{\"data\":{\"APP_ENV\":\"$ns\"}}"
 kubectl -n "$ns" rollout status statefulset/db --timeout=300s
 kubectl -n "$ns" delete job init-db --ignore-not-found --wait=true
-sed "s|REPLACE_IMAGE|$image|g" reference/k8s/init-db.yam | kubectl -n "$ns" apply -f -
+sed "s|REPLACE_IMAGE|$image|g" reference/k8s/init-db.yaml | kubectl -n "$ns" apply -f -
 kubectl -n "$ns" wait --for=condition=complete job/init-db --timeout=200s
 kubectl -n "$ns" rollout restart deployment/api
 kubectl -n "$ns" rollout status deployment/api --timeout=180s

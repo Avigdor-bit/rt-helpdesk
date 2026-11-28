@@ -1,0 +1,165 @@
+# Linux Resource Diagnosis and Disk Cleanup
+
+Date: 26 November 2026
+Environment: LocalHost (Ubuntu)
+
+## 1. Objective
+
+Perform a read-only diagnosis of CPU, memory, swap, filesystem,
+inode and storage usage. Identify safe cleanup opportunities,
+obtain approval before deleting anything, and verify the results.
+
+This exercise did not involve AWS infrastructure or changes to
+the live RT Helpdesk deployment.
+
+## 2. Initial resource diagnosis
+
+### CPU
+- CPU cores: 4
+- Load averages: 0.43, 0.65, 0.95
+- Assessment: load was below the available CPU capacity.
+
+### Memory and swap
+- RAM: approximately 15 GiB.
+- Available memory: approximately 9 GiB.
+- Swap: 4 GiB total, approximately 82 MiB used.
+- Assessment: no immediate memory pressure was indicated.
+
+### Root filesystem
+- Filesystem: ext4 on /dev/sda2.
+- Capacity: approximately 59 GiB.
+- Initial usage: approximately 82%.
+- Initial available space: approximately 11 GiB.
+- Inode usage: approximately 17%.
+- Assessment: disk usage was the main resource concern; inode
+  exhaustion was not indicated.
+
+## 3. Storage investigation
+
+Initial directory measurements:
+- /var: approximately 24 GiB.
+- /home: approximately 8.5 GiB.
+- /usr: approximately 9.2 GiB.
+
+Important storage findings:
+- Docker and containerd held substantial container data.
+- Snap revision storage initially occupied approximately 3.9 GiB.
+- Minikube storage volume occupied approximately 6.9 GiB.
+- A 2 GiB anonymous Docker volume was mounted at /var inside
+  the local kind control-plane container.
+- RT Helpdesk PostgreSQL, Grafana and Prometheus volumes were
+  identified.
+- Terraform-related PostgreSQL, MinIO and Terraform state
+  volumes were identified.
+
+These volumes, project images, containerd data, Minikube and kind
+data were preserved.
+
+## 4. Approved cleanup actions
+
+### Docker BuildKit cache
+
+Command:
+    docker buildx prune --force
+
+The initial BuildKit cache report showed approximately 776.8 MiB.
+After pruning, the cache report showed approximately 730.4 MB.
+The prune command reported approximately 46.43 MB of cache entries
+removed.
+
+The remaining cache was preserved.
+
+No Docker images, containers or volumes were intentionally removed.
+
+### Disabled Snap revisions
+
+Twelve disabled Snap revisions were identified. Their corresponding
+active revisions were present in the Snap inventory.
+
+After explicit approval, the following disabled revisions were
+removed using Snap's supported command:
+
+- core22 revision 2437
+- core24 revision 1643
+- desktop-security-center revision 151
+- firefox revision 8107
+- firmware-updater revision 226
+- gnome-46-2404 revision 153
+- mesa-2404 revision 1165
+- multipass revision 19760
+- prompting-client revision 222
+- snap-store revision 1367
+- snapd revision 26865
+- snapd-desktop-integration revision 361
+
+All twelve removal commands reported success.
+A subsequent Snap inventory showed no disabled revisions.
+
+Snap storage decreased from approximately 3.9 GiB to 2.3 GiB,
+recovering approximately 1.6 GiB.
+
+## 5. Final measurements
+
+Final filesystem measurement:
+- Total: 63,087,357,952 bytes.
+- Used: 48,691,290,112 bytes.
+- Available: 11,158,224,896 bytes.
+- Usage: 82% (rounded by df).
+
+Final Snap revision storage:
+- Approximately 2.3 GiB.
+- Disabled revisions remaining: zero.
+
+The displayed filesystem percentage remained 82% because df
+reports usage as a rounded whole percentage.
+
+## 6. What was learned
+
+1. CPU load must be interpreted relative to the number of CPUs.
+2. Available memory is more informative than simply looking at
+   the free-memory figure on Linux.
+3. Disk capacity, inode usage and directory sizes measure
+   different aspects of filesystem health.
+4. du measures directory usage, while df measures filesystem
+   allocation; their figures need not match exactly.
+5. Docker images, BuildKit cache, container volumes and
+   containerd storage are different storage categories.
+6. A Docker volume should be identified and mapped to its
+   container before considering removal.
+7. Kubernetes node volumes and application data volumes must
+   not be confused with disposable build cache.
+8. Snap disabled revisions can be removed through Snap's
+   supported revision-removal mechanism after checking that
+   active revisions remain installed.
+9. Cleanup should be preceded by measurement and explicit
+   approval, and followed by verification.
+
+## 7. Preservation and safety
+
+The exercise did not intentionally remove or modify:
+- RT Helpdesk application or database data.
+- Grafana or Prometheus persistent volumes.
+- Minikube storage or cluster.
+- The local kind troubleshooting cluster or its node volume.
+- Terraform state volumes.
+- Docker project images or running containers.
+- AWS resources or the live application deployment.
+
+No Git staging, commit or push was performed.
+
+## 8. Conclusion
+
+The primary resource pressure identified was disk usage, not CPU,
+memory or inode exhaustion.
+
+The approved cleanup recovered approximately 1.6 GiB by removing
+disabled Snap revisions and approximately 46.43 MB of BuildKit
+cache entries.
+
+Further cleanup was intentionally stopped because the remaining
+large storage consumers contain project, Kubernetes, database,
+monitoring or infrastructure-related data that should be preserved
+unless separately investigated and explicitly approved.
+
+This report records the diagnostic exercise and measured actions.
+It does not claim a completed two-to-three-hour study duration.

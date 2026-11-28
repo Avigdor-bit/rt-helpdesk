@@ -18,13 +18,13 @@ Read [the final project assignment](docs/Final_Project_Brief.docx) first. It cov
 
 This is an individual project targeting 70-90 hours, with one application namespace (`helpdesk`) plus monitoring. Bash/cloud-init cover server setup; Ansible is not required. The [reference solution and setup guide](reference/README.md) supply templates for the supported beginner path. Students use their own AWS accounts and available AWS credits, configure their own Jenkins agents and deployment credentials, connect the pipeline and verify each required outcome. The instructor supplies tested templates and guidance. The schedule allocates 74 planned hours plus up to 16 troubleshooting hours.
 
-The active Terraform root configuration in `infrastructure/` manages the two-host AWS deployment: a CI host running Jenkins and an application host running the single-node kind cluster. It also adopts the existing VPC, subnet, internet gateway, route table, security groups, application IAM resources and S3 backup bucket. On 25 November 2026, a refreshed Terraform plan completed with no proposed changes, confirming that the active configuration and AWS state are in sync. No Terraform apply was needed for that verification.
+The Terraform configuration in `infrastructure/` describes the two-host AWS deployment and includes declarations to adopt existing AWS resources. On 25 November 2026, a refreshed Terraform plan completed with no proposed changes; no apply was performed. That result is a historical verification of the configuration and state at that time. Subsequent local, uncommitted adoption/import edits in the active root have not been applied or independently revalidated. The declarations alone do not prove that resources have been imported into Terraform state.
 
 ## Container packaging
 
 The multi-stage `Dockerfile` and `.dockerignore` are included. The image provides separate test and runtime targets, runs as non-root UID/GID 10001, and supports a read-only root filesystem with writable `/tmp`.
 
-See [CONTAINER_PACKAGING.md](docs/CONTAINER_PACKAGING.md) for the packaging requirements and verification procedure. The runtime, test and default image targets have been built and checked. The test suite completed successfully with 36 passed tests.
+See [CONTAINER_PACKAGING.md](docs/CONTAINER_PACKAGING.md) for the packaging requirements and verification procedure. The test target was built locally and the test suite completed with 36 passed tests. The successful App CI run also confirms a runtime-target build. The default image target and all runtime acceptance checks in the packaging assignment are not fully evidenced; see `docs/VALIDATION.md`.
 
 ## Start locally
 
@@ -59,7 +59,7 @@ docker compose down
 
 ```sh
 docker compose --profile monitoring up --build -d
-python scripts/traffic.py --seconds 180
+bash traffic.py
 ```
 
 | Service | Local address |
@@ -104,7 +104,7 @@ The project has two distinct backup contexts. The local Compose environment and 
 
 The required Kubernetes backup workflow uses `reference/scripts/k8s-backup.sh`. It obtains a short-lived Kubernetes service-account token, runs `pg_dump` against the PostgreSQL pod, and uploads the custom-format dump to the S3 backup bucket. This workflow was verified against the EC2-hosted kind deployment. A PostgreSQL custom-format backup was restored into a separate disposable PostgreSQL 16 environment and its ticket records were inspected. The live database was not overwritten.
 
-The live PostgreSQL persistence check also replaced the database pod while retaining its bound persistent volume; all six live ticket records and their fingerprint remained unchanged. The S3 restore contained five records from the earlier backup time; the live comparison had six because a later Jenkins smoke test created another ticket.
+The live PostgreSQL persistence check also replaced the database pod while retaining its bound persistent volume; all six live ticket records and their fingerprint remained unchanged. The S3 restore contained five records from the earlier backup time; the live comparison had six because a later Jenkins smoke test created another ticket. The actual S3 download and disposable-database restore were re-verified; all five restored records matched the pre-backup records. See the [S3 restore verification evidence](evidence/local/s3-restore-verification.txt) for the terminal results.
 
 A successful recovery check must restore a backup into a disposable PostgreSQL database and compare actual ticket values, not just confirm that the archive exists or can be listed. Never restore over the live database. Backup archives contain ticket data; keep them private.
 
@@ -122,7 +122,7 @@ docker build --target runtime --build-arg APP_VERSION=demo-v1 -t rt-helpdesk:dem
 
 In Jenkins, use the exact checked-out Git commit SHA as the image version. The current pipeline validates the trusted `main` revision, runs the integration tests, builds the runtime image, publishes it to the private Amazon ECR repository and archives the immutable image digest.
 
-The approved release was deployed to the application host: the pipeline validated the trusted `main` revision, passed all 36 tests, published the runtime image to ECR, archived its immutable digest, and completed the approved Kubernetes rollout and smoke checks. A controlled failed-release test also confirmed that the previous image was restored and API health checks passed. Do not treat image publication alone as a completed deployment. `APP_ENV` is runtime configuration; normally do not override baked-in `APP_VERSION` in Kubernetes.
+The approved release was deployed to the application host: the pipeline validated the trusted `main` revision, passed all 36 tests, published the runtime image to ECR, archived its immutable digest, and completed the approved Kubernetes rollout and smoke checks. The release script's rollback behavior was separately demonstrated on 26 November 2026 in a disposable local kind cluster; this is not evidence of a Jenkins-triggered rollback or AWS rollback execution. No specific Jenkins rollback build or console evidence was independently identified among builds #1–#8. Do not cite Build #6 as proof of rollback. Do not treat image publication alone as a completed deployment. `APP_ENV` is runtime configuration; normally do not override baked-in `APP_VERSION` in Kubernetes.
 
 Before starting the app in a new Kubernetes environment, provision the database and `helpdesk` schema, then run the image once as a Job with:
 
@@ -130,10 +130,54 @@ Before starting the app in a new Kubernetes environment, provision the database 
 flask --app app init-db
 ```
 
-The initialization retries temporary connection failures up to ten times. `schema.sql` is the initial schema, not a general migration framework. App restarts do not execute DDL.
+The `init-db` command retries PostgreSQL operational errors up to ten times by default, waiting one second between attempts; the `--attempts` option allows a limit of 1–30 attempts. `schema.sql` is the initial schema, not a general migration framework. App restarts do not execute DDL.
 
 ## Versions and verification
 
 Python dependencies are pinned in `requirements.txt` and `requirements-dev.txt`. PostgreSQL uses the maintained `16-bookworm` tag; Python uses `3.12-slim-bookworm`. These tags can receive updates. Record resolved digests in your release evidence. Prometheus and Grafana use explicit versions in Compose. Review and scan versions before running a class.
 
 See [VALIDATION.md](docs/VALIDATION.md) for what was actually executed while preparing this package and what still requires a Docker/AWS environment.
+
+### CI, monitoring and recovery evidence
+
+- [CI evidence index](evidence/ci/README.md)
+- [Successful App CI run](https://github.com/Avigdor-bit/rt-helpdesk/actions/runs/44917156684) — validation, tests and image build; not ECR publication or deployment.
+- [Monitoring and recovery record](docs/MONITORING.md)
+- [S3 backup restore verification](evidence/local/s3-restore-verification.txt)
+
+## Deployment architecture
+
+```mermaid
+flowchart LR
+  GitHub --> CI
+  subgraph CI["CI EC2 host"]
+    Controller["Jenkins controller"]
+    Agent["Jenkins build agent"]
+    Controller --> Agent
+  end
+  Agent --> ECR
+  Agent --> Deploy
+  subgraph APP["Application EC2 host"]
+    Deploy["SSH release as deploy"]
+    Deploy --> Kind["kind cluster"]
+    Kind --> API["Helpdesk API"]
+    API --> DB[("PostgreSQL + PVC")]
+    Kind --> Monitoring["Prometheus + Grafana"]
+  end
+  APP --> S3[("Private S3 backup bucket")]
+  Terraform --> AWS["AWS VPC and EC2"]
+```
+
+## AWS cleanup and resource retention
+
+Do not run `terraform destroy` as a routine cleanup step. It can remove the project hosts and other managed infrastructure.
+
+Before any teardown, review the Terraform plan and confirm which resources would be deleted. Preserve the Terraform state bucket and S3 backup bucket, including their contents and versions. Do not delete backups or state as part of ordinary project cleanup.
+
+## Final self-study exercise (2–3 hours)
+
+**Status: selected self-study task completed; duration not recorded.** The Linux resource-diagnosis task was completed on 26 November 2026 and documented in [Linux resource-diagnosis evidence](evidence/local/linux-resource-diagnosis.txt). It covers CPU, memory, swap, filesystem and inode diagnosis; safe storage investigation; approved cleanup; verification; and lessons learned. The report does not claim that the assigned 2–3-hour duration was completed. The separate Kubernetes troubleshooting exercise is additional supporting evidence.
+
+The course brief requires one small self-study task. This project uses the Linux resource-diagnosis option; the Grafana-panel and alert-duration options were not selected.
+
+Do not perform destructive tests against the live database or delete shared AWS resources.

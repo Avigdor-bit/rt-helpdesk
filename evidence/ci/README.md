@@ -1,6 +1,6 @@
 # GitHub Actions CI Evidence
 
-## Latest successful main run
+## Latest documented successful App CI run
 
 - Repository: Avigdor-bit/rt-helpdesk
 - Branch: main

@@ -27,26 +27,36 @@ The following checks were completed against the deployed AWS environment after t
 | Area | Live result |
 |---|---|
 | AWS environment | Account `391924456595`, region `il-central-1`; separate CI and application EC2 hosts verified |
-| Terraform | Refreshed plan completed with no proposed changes; configuration and AWS state were in sync; no apply was performed |
+| Terraform (25 November snapshot) | Refreshed plan completed with no proposed changes at that time; no apply was performed. Subsequent uncommitted adoption/import edits in the active root have not been applied or independently revalidated; declarations alone do not prove imported state. |
 | Application platform | Helpdesk application and PostgreSQL running in the `helpdesk` namespace on the application host single-node kind cluster |
 | Jenkins release | Trusted `main` revision checked out; 36 tests passed; runtime image published to ECR and immutable digest recorded; approved deployment rollout and smoke checks passed |
-| Failed-release recovery | Controlled failed image rollout triggered rollback; previous image was restored and API health checks passed |
+| Jenkins rollback evidence | No specific Jenkins rollback build or console evidence was independently identified in the reviewed builds #1–#8; a separate local rollback-script demonstration is documented below |
 | Database persistence | PostgreSQL pod replacement retained the same Bound PVC; all six live ticket records and their fingerprint remained unchanged |
 | Prometheus | Helpdesk target healthy; database metric healthy; 15-second scrape interval verified |
 | Grafana | Prometheus datasource and RT Helpdesk dashboard verified; seven dashboard panels present |
 | Database alert | Controlled outage caused `HelpdeskDatabaseUnavailable` to fire after 60 seconds; recovery cleared the alert and restored the database |
-| S3 backup and restore | PostgreSQL custom-format backup restored into a separate disposable PostgreSQL 16 environment; restored ticket records inspected; live database not overwritten |
+| S3 backup and restore | Actual S3 archive downloaded and restored into a disposable PostgreSQL database; all five restored ticket records matched the pre-backup records; live database remained untouched |
 | Test-only image | Separate Debian Trixie test image passed 36 tests and runtime smoke checks, was pushed and scanned in ECR, and was not deployed |
 
-The S3 archive `backups/helpdesk/20261124T200325Z.dump` contained five records at backup time. The later live comparison contained six because a subsequent Jenkins smoke test created another ticket. The difference is consistent with the backup and comparison times.
+## Local rollback-script verification: 26 November 2026
 
-The controlled database alert test restored PostgreSQL to one replica. The original PVC remained Bound. The failed-release test restored the previously deployed image. Neither test was intended to change application data.
+The release script at `reference/scripts/release.sh` was exercised against the disposable local kind cluster `rt-helpdesk-rollback-test`, not the AWS application cluster or Minikube.
+
+A known-good API deployment using an existing digest-pinned image was established first. The PostgreSQL pod was Ready, its PVC was Bound, and the database initialization Job completed.
+
+The test then supplied a syntactically valid but deliberately nonexistent image digest to the release script. The candidate rollout timed out, the script's `ERR` trap ran, and the previous digest-pinned image was restored. The script exited with status 1 as expected for the failed release. A subsequent rollout check succeeded; the API Deployment was 1/1 Available, the restored API pod was 1/1 Running with zero restarts, and PostgreSQL remained 1/1 Running.
+
+This demonstrates the release script's rollback behavior in a disposable local cluster. It is not evidence of a Jenkins-triggered rollback or an AWS rollback execution. No project files, AWS resources, or live application data were changed during this test.
+
+The S3 archive `backups/helpdesk/20261124T200325Z.dump` contained five records at backup time. The later live comparison contained six because a subsequent Jenkins smoke test created another ticket. The difference is consistent with the backup and comparison times. The successful restore verification, including the restored ticket rows and cleanup results, is recorded in `evidence/local/s3-restore-verification.txt`.
+
+The controlled database alert test restored PostgreSQL to one replica, and the original PVC remained Bound. The local rollback-script demonstration used a separate disposable cluster and did not affect the live AWS application or database.
 
 These results demonstrate the course project deployment and tested recovery paths. They do not establish high availability, multi-region disaster recovery, external alert notifications or commercial production support.
 
 ## Historical limitations at package preparation (8 November 2026)
 
-PGlite runs PostgreSQL in an embedded environment. It is useful for SQL and application behavior checks, but it is not the supplied native PostgreSQL16 Docker image. Container initialization, volume ownership, pg_dump/pg_restore, and actual container networking must still be exercised with Docker.
+PGlite runs PostgreSQL in an embedded environment. It is useful for SQL and application behavior checks, but it is not the supplied native PostgreSQL 16 Docker image. Container initialization, volume ownership, pg_dump/pg_restore, and actual container networking must still be exercised with Docker.
 
 No Docker daemon or AWS account was used. Docker image builds, the complete Compose stack, Kubernetes rollout/RBAC behavior, live Grafana provisioning, Jenkins execution, GitHub-hosted workflow execution, cloud IAM/networking, backups and disaster recovery were not tested end to end here. Browser automation could not launch because the browser binary was unavailable. The server-rendered HTML and JavaScript syntax were checked, but browser interactions need a lab check.
 
@@ -56,7 +66,7 @@ Terraform provider lock files came from provider initialization. No AWS Plan or 
 
 1. Follow the root README on a clean Docker machine. Create, close and reopen a ticket in the browser.
 2. Restart the app and database without deleting volumes, then verify the same ticket remains.
-3. Run `docker compose --profile test run --build --rm tests` against native PostgreSQL16.
+3. Run `docker compose --profile test run --build --rm tests` against native PostgreSQL 16.
 4. Start the monitoring profile. Confirm the target is up and the supplied Grafana dashboard displays traffic.
 5. Stop and restart the demo database. Confirm readiness fails while liveness remains up, and the database alert fires then resolves.
 6. Back up and restore into a fresh disposable database. Compare actual ticket values.
@@ -65,7 +75,7 @@ Terraform provider lock files came from provider initialization. No AWS Plan or 
 
 ## Historical scope revision
 
-The revised reference uses one application namespace (`helpdesk`), one initial API replica, a Jenkins deployment without promotion or mandatory Trivy scanning, three Kubernetes dashboard panels and one database alert. Namespace references, shell syntax, Kubernetes schemas and Prometheus configurations were checked after the change. Application code and the local Compose examples were not changed. Live cloud, Jenkins and Grafana checks remain outstanding as described above.
+The revised reference uses one application namespace (`helpdesk`), one initial API replica, a Jenkins deployment without promotion or mandatory Trivy scanning, three Kubernetes dashboard panels and one database alert. Namespace references, shell syntax, Kubernetes schemas and Prometheus configurations were checked after the change. Application code and the local Compose examples were not changed. Live cloud, Jenkins and Grafana checks are documented in the dated 25 November 2026 verification section above; the earlier checks in this section remain historical.
 
 ## Docker packaging exercise revision: 9 November 2026
 
@@ -74,6 +84,10 @@ The student ZIP now intentionally omits Dockerfile and .dockerignore. It include
 The original application, dependency pins, Compose configuration, CI workflow and deployment code are unchanged. The instructor Dockerfile retains the original implementation; its ignore file adds exclusions for local tooling and sensitive/generated files in subdirectories. Documentation and archive separation were checked, and the updated Word brief was rendered and visually reviewed. No Docker executable/daemon is available in this editing environment, so the new exercise's image builds and acceptance commands have not been executed here. Earlier application test results above are historical, not new test runs.
 
 Milestone 1 allocates 3-4 of its existing 10 hours to packaging. The six-week 70-90 hour total and all required technologies remain unchanged.
+
+## Packaging evidence reviewed for submission: 26 November 2026
+
+The local packaging evidence records a successful test-target build and 36 passing tests. The successful App CI run (44917156684) also records a runtime-target build. The reviewed evidence does not establish a successful default image build, a runtime read-only-root-filesystem test, confirmation that pytest is absent from the runtime image, or the complete Compose persistence acceptance check. These checks remain unverified and are not claimed as completed.
 
 ## AWS account and Jenkins ownership revision: 9 November 2026
 

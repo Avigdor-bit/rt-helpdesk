@@ -1,0 +1,67 @@
+RT Helpdesk — S3 Backup Restore Verification
+============================================
+
+Result: PASS
+
+Test objective
+--------------
+Verify that an actual PostgreSQL custom-format backup stored in the
+private S3 backup bucket can be downloaded and restored into a separate
+disposable database, without overwriting the live Helpdesk database.
+
+Source archive
+--------------
+S3 bucket: rt-helpdesk-backups-391924456595-ilc1
+S3 object: backups/helpdesk/20261124T200325Z.dump
+Object size: 4331 bytes
+S3 LastModified: 2026-11-24T20:03:27+00:00
+
+Restore procedure
+-----------------
+1. Confirmed that helpdesk_restore_check1 did not already exist.
+2. Downloaded the actual S3 archive to a temporary directory on the
+   application host.
+3. Created the disposable PostgreSQL database helpdesk_restore_check1.
+4. Restored the archive with pg_restore using:
+   --no-owner --no-privileges --exit-on-error
+5. Queried the restored ticket records.
+6. Queried the live helpdesk database separately.
+7. Dropped only helpdesk_restore_check1.
+8. Removed the temporary local dump.
+
+Restored ticket records
+-----------------------
+ id | title                         | status
+----+-------------------------------+--------
+  1 | Cannot connect to training VM | open
+  2 | Course recording missing      | open
+  3 | Docker image fails to start   | open
+  4 | Lab access restored           | closed
+  5 | בקשת גישה למעבדה              | open
+
+Comparison
+----------
+Pre-backup ticket records:       5
+Restored ticket records:         5
+Live helpdesk ticket records:    6
+
+All five restored records matched the five pre-backup records in
+evidence/local/tickets-before.txt, including ticket IDs, titles and
+statuses.
+
+The live database contained six records and was not overwritten.
+The additional live record was created after the backup.
+
+Cleanup
+-------
+Disposable database helpdesk_restore_check1: removed successfully.
+Temporary downloaded dump: removed successfully.
+Original S3 archive: unchanged.
+Live helpdesk database: left intact.
+
+Final result
+------------
+PASS — Actual S3 archive downloaded and restored successfully.
+PASS — Restored records matched the pre-backup ticket records.
+PASS — Live database remained separate and retained six records.
+PASS — Disposable database and temporary dump were cleaned up.
