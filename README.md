@@ -443,34 +443,34 @@ Do not make last-minute infrastructure changes, Terraform imports, AWS modificat
 
 ---
 
-# Terraform State Synchronization Verification:
+## Terraform State Synchronization Verification
 
-Evidence file — evidence/terraform/state-sync-verification.md
+**Verification date:** 28 November 2026
+**AWS region:** `il-central-1`
 
-Baseline commit: a9649c5
-Region: il-central-1
+A normal `terraform plan -detailed-exitcode` completed successfully against the live AWS environment and reported:
 
-## Verified
-`terraform plan` against the live AWS account reported no unexpected drift.
-The 26 tracked resources (both EC2 hosts, VPC, subnets, route tables, IGW,
-security groups, IAM roles/instance profiles, S3 backend) are synchronized
-with the state.
+`No changes. Your infrastructure matches the configuration.`
 
-## What this proves
-- Terraform is not merely present in the repository; it manages the current
-  AWS infrastructure.
-- The committed configuration describes the deployed resources.
+Terraform refreshed 26 tracked resource addresses, including the two EC2 instances, VPC, subnet, networking, security groups, IAM resources, and S3 backup resources.
 
-## What this does NOT prove
-- A complete destroy-and-recreate lifecycle.
-- Operational health of Jenkins, Kubernetes, the Flask app, PostgreSQL, or
-  Prometheus/Grafana (validated separately).
-- That every AWS resource is under Terraform control — only the 26 tracked
-  resources are in scope.
+### What this verifies
 
+- The local Terraform working configuration matched the refreshed Terraform state and live AWS infrastructure at the time of verification.
+- All 26 tracked resource addresses were successfully refreshed.
+- Terraform proposed no infrastructure changes.
 
----
+### Important distinction
 
+This verification used the local working configuration, including adoption-related files that were not necessarily included in the official submission commit `a9649c5`.
+
+It therefore does not establish that the original submission commit alone contains everything required to reproduce or manage the current AWS infrastructure.
+
+### Limitations
+
+- A complete destroy-and-recreate lifecycle was not demonstrated.
+- This does not independently establish the operational health of Jenkins, Kubernetes, the application, PostgreSQL, or monitoring.
+- It does not prove that every AWS resource in the account is managed by Terraform.
 
 Final reference: a9649c5 on GitHub main
 
